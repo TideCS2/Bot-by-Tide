@@ -22,7 +22,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 
-REDIRECT_URI = "https://bot-by-tide-production.up.railway.app"
+REDIRECT_URI = "https://bot-by-tide-production.up.railway.app/callback"
 
 # =========================
 # DISCORD SETUP
