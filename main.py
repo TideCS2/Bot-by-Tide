@@ -286,7 +286,16 @@ async def sync_roles():
 # OAUTH WEB SERVER (NO FLASK)
 # =========================
 
+import os
+from aiohttp import web
+
 routes = web.RouteTableDef()
+
+
+@routes.get("/")
+async def home(request):
+    return web.Response(text="Bot is running")
+
 
 @routes.get("/callback")
 async def callback(request):
@@ -295,7 +304,11 @@ async def callback(request):
     state = request.query.get("state")
 
     if not code:
-        return web.Response(text="Missing code")
+        return web.Response(text="Missing code from Twitch")
+
+    # If state missing (safety check)
+    if not state:
+        return web.Response(text="Missing state")
 
     discord_id = int(state)
 
@@ -313,7 +326,10 @@ async def callback(request):
         ) as r:
             token_data = await r.json()
 
-    access_token = token_data["access_token"]
+    access_token = token_data.get("access_token")
+
+    if not access_token:
+        return web.Response(text=f"Token error: {token_data}")
 
     user = await get_twitch_user(access_token)
 
