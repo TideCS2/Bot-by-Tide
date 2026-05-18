@@ -334,7 +334,14 @@ async def callback(request):
     await db.commit()
 
     # ASSIGN ROLES IMMEDIATELY
-    await assign_roles(discord_id, access_token)
+    print("CALLING assign_roles NOW")
+
+    try:
+        await assign_roles(discord_id, access_token)
+        print("assign_roles FINISHED SUCCESSFULLY")
+
+    except Exception as e:
+        print("assign_roles CRASHED:", e)
 
     return web.Response(
         text="Verified! Your Discord roles have been updated. You can close this tab."
