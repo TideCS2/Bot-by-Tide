@@ -209,19 +209,18 @@ async def list_channels(interaction: discord.Interaction):
 
 async def assign_roles(discord_id, twitch_access_token):
 
-    user_data = await get_twitch_user(twitch_access_token)
+    print("Running assign_roles for:", discord_id)
 
+    user_data = await get_twitch_user(twitch_access_token)
     twitch_user_id = user_data["id"]
 
-    async with db.execute(
-        "SELECT * FROM channels"
-    ) as cursor:
-
+    async with db.execute("SELECT * FROM channels") as cursor:
         channels = await cursor.fetchall()
 
     for guild_id, channel, broadcaster_id, role_id in channels:
 
         try:
+            print(f"Checking guild {guild_id}")
 
             is_following = await check_follow(
                 twitch_user_id,
@@ -232,39 +231,34 @@ async def assign_roles(discord_id, twitch_access_token):
             guild = bot.get_guild(guild_id)
 
             if not guild:
-                print(f"Guild {guild_id} not found")
+                print("Guild not found")
                 continue
 
             member = await guild.fetch_member(discord_id)
 
             role = guild.get_role(role_id)
 
-            if not role:
-                print(f"Role {role_id} not found")
+            if not member:
+                print("Member not found")
                 continue
+
+            if not role:
+                print("Role not found")
+                continue
+
+            print("Follow status:", is_following)
 
             if is_following:
 
                 if role not in member.roles:
                     await member.add_roles(role)
-
-                    print(
-                        f"Assigned role '{role.name}' "
-                        f"to {member.name}"
-                    )
+                    print("ROLE ASSIGNED")
 
             else:
-
-                if role in member.roles:
-                    await member.remove_roles(role)
-
-                    print(
-                        f"Removed role '{role.name}' "
-                        f"from {member.name}"
-                    )
+                print("Not following")
 
         except Exception as e:
-            print(f"Role sync error: {e}")
+            print("assign_roles error:", e)
 
 
 async def sync_roles():
