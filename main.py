@@ -334,13 +334,42 @@ async def callback(request):
 # START WEB SERVER
 # =========================
 
+import os
+from aiohttp import web
+
+routes = web.RouteTableDef()
+
+
+@routes.get("/")
+async def home(request):
+    return web.Response(text="Bot is running")
+
+
+@routes.get("/callback")
+async def callback(request):
+
+    code = request.query.get("code")
+    state = request.query.get("state")
+
+    if not code:
+        return web.Response(text="Missing code from Twitch")
+
+    return web.Response(text="SUCCESS: Twitch callback reached")
+
+
 async def start_web():
     app = web.Application()
     app.add_routes(routes)
+
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 5000)
+
+    port = int(os.getenv("PORT", 8080))  # safer default for Railway
+
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+
+    print(f"Web server running on port {port}")
 
 # =========================
 # READY EVENT
