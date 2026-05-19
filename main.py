@@ -8,15 +8,16 @@ import aiosqlite
 import urllib.parse
 import asyncio
 from aiohttp import web
+
 load_dotenv()
+
 # =========================
 # CONFIG
 # =========================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
-
-REDIRECT_URI = "https://bot-by-tide-production.up.railway.app/callback"
+REDIRECT_URI = os.getenv("REDIRECT_URI") or "https://your-railway-app.up.railway.app/callback"
 
 # =========================
 # DISCORD SETUP
@@ -25,6 +26,7 @@ intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = None
+
 # =========================
 # DATABASE
 # =========================
@@ -46,22 +48,22 @@ async def init_db():
     );
     """)
     await db.commit()
+
 # =========================
 # TWITCH HELPERS
 # =========================
 async def twitch_request(url, token=None, params=None):
-    headers = {
-        "Client-ID": TWITCH_CLIENT_ID
-    }
-    # ADD THIS (required)
+    headers = {"Client-ID": TWITCH_CLIENT_ID}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers, params=params) as r:
             return await r.json()
+
 async def get_twitch_user(token):
     data = await twitch_request("https://api.twitch.tv/helix/users", token)
     return data["data"][0]
+
 async def get_channel_id(username):
     token = await get_app_token()
     data = await twitch_request(
@@ -69,10 +71,10 @@ async def get_channel_id(username):
         token=token,
         params={"login": username}
     )
-    print("Twitch response:", data)
     if not data.get("data"):
         return None
     return data["data"][0]["id"]
+
 async def get_app_token():
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -85,6 +87,7 @@ async def get_app_token():
         ) as r:
             data = await r.json()
             return data["access_token"]
+
 async def check_follow(user_id, broadcaster_id, token):
     data = await twitch_request(
         "https://api.twitch.tv/helix/channels/followed",
@@ -92,8 +95,9 @@ async def check_follow(user_id, broadcaster_id, token):
         params={"user_id": user_id, "broadcaster_id": broadcaster_id}
     )
     return data.get("total", 0) > 0
+
 # =========================
-# DISCORD COMMAND: VERIFY
+# DISCORD COMMANDS
 # =========================
 @bot.tree.command(name="verify")
 async def verify(interaction: discord.Interaction):
@@ -107,12 +111,9 @@ async def verify(interaction: discord.Interaction):
     }
     url = "https://id.twitch.tv/oauth2/authorize?" + urllib.parse.urlencode(params)
     await interaction.response.send_message(
-        f"Verify Twitch here:\n{url}",
-        ephemeral=True
+        f"Verify Twitch here:\n{url}", ephemeral=True
     )
-# =========================
-# MOD: ADD CHANNEL
-# =========================
+
 @bot.tree.command(name="add_channel")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def add_channel(interaction: discord.Interaction, twitch_username: str, role: discord.Role):
@@ -126,12 +127,8 @@ async def add_channel(interaction: discord.Interaction, twitch_username: str, ro
         (interaction.guild.id, twitch_username, twitch_id, role.id)
     )
     await db.commit()
-    await interaction.followup.send(
-        f"✅ Added {twitch_username} → {role.name}"
-    )
-# =========================
-# MOD: REMOVE CHANNEL
-# =========================
+    await interaction.followup.send(f"✅ Added {twitch_username} → {role.name}")
+
 @bot.tree.command(name="remove_channel")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def remove_channel(interaction: discord.Interaction, twitch_username: str):
@@ -141,9 +138,7 @@ async def remove_channel(interaction: discord.Interaction, twitch_username: str)
     )
     await db.commit()
     await interaction.response.send_message("Removed channel", ephemeral=True)
-# =========================
-# LIST CHANNELS
-# =========================
+
 @bot.tree.command(name="list_channels")
 async def list_channels(interaction: discord.Interaction):
     cursor = await db.execute(
@@ -153,48 +148,34 @@ async def list_channels(interaction: discord.Interaction):
     rows = await cursor.fetchall()
     msg = "\n".join([f"{c} → <@&{r}>" for c, r in rows]) or "No channels set."
     await interaction.response.send_message(msg, ephemeral=True)
+
 # =========================
 # ROLE SYNC ENGINE
 # =========================
 async def assign_roles(discord_id, twitch_access_token):
     user_data = await get_twitch_user(twitch_access_token)
     twitch_user_id = user_data["id"]
-    async with db.execute(
-        "SELECT * FROM channels"
-    ) as cursor:
+    async with db.execute("SELECT * FROM channels") as cursor:
         channels = await cursor.fetchall()
     for guild_id, channel, broadcaster_id, role_id in channels:
         try:
-            is_following = await check_follow(
-                twitch_user_id,
-                broadcaster_id,
-                twitch_access_token
-            )
+            is_following = await check_follow(twitch_user_id, broadcaster_id, twitch_access_token)
             guild = bot.get_guild(guild_id)
             if not guild:
-                print(f"Guild {guild_id} not found")
                 continue
             member = await guild.fetch_member(discord_id)
             role = guild.get_role(role_id)
             if not role:
-                print(f"Role {role_id} not found")
                 continue
-            if is_following:
-                if role not in member.roles:
-                    await member.add_roles(role)
-                    print(
-                        f"Assigned role '{role.name}' "
-                        f"to {member.name}"
-                    )
-            else:
-                if role in member.roles:
-                    await member.remove_roles(role)
-                    print(
-                        f"Removed role '{role.name}' "
-                        f"from {member.name}"
-                    )
+            if is_following and role not in member.roles:
+                await member.add_roles(role)
+                print(f"Assigned role '{role.name}' to {member.name}")
+            elif not is_following and role in member.roles:
+                await member.remove_roles(role)
+                print(f"Removed role '{role.name}' from {member.name}")
         except Exception as e:
             print(f"Role sync error: {e}")
+
 async def sync_roles():
     await bot.wait_until_ready()
     while not bot.is_closed():
@@ -203,25 +184,22 @@ async def sync_roles():
         for discord_id, twitch_id, twitch_name, token in users:
             await assign_roles(discord_id, token)
         await asyncio.sleep(300)
+
 # =========================
-# OAUTH WEB SERVER (NO FLASK)
+# OAUTH WEB SERVER
 # =========================
-import os
-from aiohttp import web
 routes = web.RouteTableDef()
+
 @routes.get("/")
 async def home(request):
     return web.Response(text="Bot is running")
+
 @routes.get("/callback")
 async def callback(request):
     code = request.query.get("code")
     state = request.query.get("state")
-
-    if not code:
-        return web.Response(text="Missing code from Twitch")
-
-    if not state:
-        return web.Response(text="Missing state")
+    if not code or not state:
+        return web.Response(text="Missing code or state")
 
     discord_id = int(state)
 
@@ -243,47 +221,29 @@ async def callback(request):
     if not access_token:
         return web.Response(text=f"Token error: {token_data}")
 
-    # Get Twitch user info
     user = await get_twitch_user(access_token)
 
-    # Save user to database
+    # Save user
     await db.execute("""
         INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?)
     """, (discord_id, user["id"], user["login"], access_token))
     await db.commit()
 
-    # Assign roles immediately
+    # Assign roles
     await assign_roles(discord_id, access_token)
 
-    return web.Response(
-        text="✅ Verified! Your Discord roles have been updated. You can close this tab."
-    )
-    
-# =========================
-# START WEB SERVER
-# =========================
-import os
-from aiohttp import web
-routes = web.RouteTableDef()
-@routes.get("/")
-async def home(request):
-    return web.Response(text="Bot is running")
-@routes.get("/callback")
-async def callback(request):
-    code = request.query.get("code")
-    state = request.query.get("state")
-    if not code:
-        return web.Response(text="Missing code from Twitch")
-    return web.Response(text="SUCCESS: Twitch callback reached")
+    return web.Response(text="✅ Verified! Your Discord roles have been updated. You can close this tab.")
+
 async def start_web():
     app = web.Application()
     app.add_routes(routes)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.getenv("PORT", 8080))  # safer default for Railway
+    port = int(os.getenv("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"Web server running on port {port}")
+
 # =========================
 # READY EVENT
 # =========================
@@ -294,6 +254,7 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
     bot.loop.create_task(sync_roles())
     bot.loop.create_task(start_web())
+
 # =========================
 # RUN BOT
 # =========================
