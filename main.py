@@ -216,13 +216,16 @@ async def home(request):
 async def callback(request):
     code = request.query.get("code")
     state = request.query.get("state")
+
     if not code:
         return web.Response(text="Missing code from Twitch")
-    # If state missing (safety check)
+
     if not state:
         return web.Response(text="Missing state")
+
     discord_id = int(state)
-    # exchange token
+
+    # Exchange code for token
     async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://id.twitch.tv/oauth2/token",
@@ -235,19 +238,27 @@ async def callback(request):
             }
         ) as r:
             token_data = await r.json()
+
     access_token = token_data.get("access_token")
     if not access_token:
         return web.Response(text=f"Token error: {token_data}")
+
+    # Get Twitch user info
     user = await get_twitch_user(access_token)
+
+    # Save user to database
     await db.execute("""
         INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?)
     """, (discord_id, user["id"], user["login"], access_token))
     await db.commit()
-    # ASSIGN ROLES IMMEDIATELY
+
+    # Assign roles immediately
     await assign_roles(discord_id, access_token)
+
     return web.Response(
-        text="Verified! Your Discord roles have been updated. You can close this tab."
+        text="✅ Verified! Your Discord roles have been updated. You can close this tab."
     )
+    
 # =========================
 # START WEB SERVER
 # =========================
